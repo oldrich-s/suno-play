@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playlist Player</title>
+</head>
+<body>
+    <h1>Playlist Player</h1>
+    <button id="playPause">Play</button>
+    <button id="next">Next</button>
+    <button id="prev">Previous</button>
+
+    <div id="currentSongInfo">
+        <h2 id="songTitle">Title: </h2>
+        <img id="songImage" src="" alt="Song Image" style="width: 300px; height: auto;">
+    </div>
+
+    <script>
+        // JavaScript logic
+        const playlistApiUrl = "https://studio-api.prod.suno.com/api/playlist/9d83c77c-2d5e-4902-ae7a-ca5199359777/?page=";
+        let playlist = [];
+        let currentSongIndex = 0;
+        let audio = new Audio();
+        let isPlaying = false;
+
+        async function fetchPlaylist() {
+            let page = 1;
+            let hasMorePages = true;
+
+            while (hasMorePages) {
+                const response = await fetch(playlistApiUrl + page);
+                const data = await response.json();
+
+                if (data.playlist_clips && data.playlist_clips.length > 0) {
+                    playlist = playlist.concat(data.playlist_clips.map(clip => ({
+                        title: clip.clip.title,
+                        audio: clip.clip.audio_url,
+                        image: clip.clip.image_url
+                    })));
+                    page++;
+                } else {
+                    hasMorePages = false;
+                }
+            }
+
+            // Shuffle the playlist
+            playlist = playlist.sort(() => Math.random() - 0.5);
+
+            console.log("Fetched and shuffled playlist:", playlist);
+        }
+
+        function updateSongInfo() {
+            const currentSong = playlist[currentSongIndex];
+            document.getElementById("songTitle").textContent = `Title: ${currentSong.title}`;
+            document.getElementById("songImage").src = currentSong.image;
+
+            // Update Media Session API for lock screen controls
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: currentSong.title,
+                    artwork: [
+                        { src: currentSong.image, sizes: '512x512', type: 'image/jpeg' }
+                    ]
+                });
+
+                navigator.mediaSession.setActionHandler('play', playPause);
+                navigator.mediaSession.setActionHandler('pause', playPause);
+                navigator.mediaSession.setActionHandler('nexttrack', nextSong);
+                navigator.mediaSession.setActionHandler('previoustrack', prevSong);
+            }
+        }
+
+        function playPause() {
+            if (isPlaying) {
+                audio.pause();
+                isPlaying = false;
+                document.getElementById("playPause").textContent = "Play";
+            } else {
+                if (!audio.src) {
+                    audio.src = playlist[currentSongIndex].audio;
+                }
+                audio.play();
+                isPlaying = true;
+                document.getElementById("playPause").textContent = "Pause";
+            }
+        }
+
+        function nextSong() {
+            currentSongIndex = (currentSongIndex + 1) % playlist.length;
+            audio.src = playlist[currentSongIndex].audio;
+            audio.play();
+            isPlaying = true;
+            document.getElementById("playPause").textContent = "Pause";
+            updateSongInfo();
+        }
+
+        function prevSong() {
+            currentSongIndex = (currentSongIndex - 1 + playlist.length) % playlist.length;
+            audio.src = playlist[currentSongIndex].audio;
+            audio.play();
+            isPlaying = true;
+            document.getElementById("playPause").textContent = "Pause";
+            updateSongInfo();
+        }
+
+        // Add button event listeners
+        document.getElementById("playPause").addEventListener("click", playPause);
+        document.getElementById("next").addEventListener("click", nextSong);
+        document.getElementById("prev").addEventListener("click", prevSong);
+
+        // Fetch the playlist on page load
+        fetchPlaylist().then(() => {
+            if (playlist.length > 0) {
+                updateSongInfo();
+            }
+        });
+    </script>
+</body>
+</html>
