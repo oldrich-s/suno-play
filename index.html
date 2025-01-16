@@ -24,6 +24,8 @@
         let audio = new Audio();
         let isPlaying = false;
 
+        audio.controls = true;
+
         async function fetchPlaylist() {
             let page = 1;
             let hasMorePages = true;
