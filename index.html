@@ -30,22 +30,21 @@
 
         async function fetchPlaylist() {
             let page = 1;
-            let hasMorePages = true;
 
-            while (hasMorePages) {
+            while (true) {
                 const response = await fetch(playlistApiUrl + page);
+                if (response.status !== 200) break;
+                
                 const data = await response.json();
-
-                if (data.playlist_clips && data.playlist_clips.length > 0) {
-                    playlist = playlist.concat(data.playlist_clips.map(clip => ({
-                        title: clip.clip.title,
-                        audio: clip.clip.audio_url,
-                        image: clip.clip.image_url
-                    })));
-                    page++;
-                } else {
-                    hasMorePages = false;
-                }
+                if (!data.playlist_clips || !data.playlist_clips.length) break;
+                
+                playlist = playlist.concat(data.playlist_clips.map(clip => ({
+                    title: clip.clip.title,
+                    audio: clip.clip.audio_url,
+                    image: clip.clip.image_url
+                })));
+                
+                page++;
             }
 
             // Shuffle the playlist
