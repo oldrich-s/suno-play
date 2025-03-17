@@ -39,6 +39,7 @@
                 if (!data.playlist_clips || !data.playlist_clips.length) break;
                 
                 playlist = playlist.concat(data.playlist_clips.map(clip => ({
+                    id: clip.clip.id,
                     title: clip.clip.title,
                     audio: clip.clip.audio_url,
                     image: clip.clip.image_url
@@ -91,7 +92,12 @@
         }
 
         function nextSong() {
-            currentSongIndex = (currentSongIndex + 1) % playlist.length;
+            currentSongIndex = currentSongIndex + 1;
+            if (currentSongIndex >= playlist.length) return;
+
+            const playedSongIDs = JSON.parse(localStorage.getItem('suno-played-song-ids') || '[]');
+            localStorage.setItem('suno-played-song-ids', JSON.stringify([...playedSongIDs, playlist[currentSongIndex].id]));
+
             audio.src = playlist[currentSongIndex].audio;
             audio.play();
             isPlaying = true;
@@ -100,7 +106,9 @@
         }
 
         function prevSong() {
-            currentSongIndex = (currentSongIndex - 1 + playlist.length) % playlist.length;
+            currentSongIndex = currentSongIndex - 1;
+            if (currentSongIndex < 0) return;
+
             audio.src = playlist[currentSongIndex].audio;
             audio.play();
             isPlaying = true;
@@ -115,8 +123,17 @@
 
         // Fetch the playlist on page load
         fetchPlaylist().then(() => {
+            const playedSongIDs = JSON.parse(localStorage.getItem('suno-played-song-ids') || '[]');
+
+            if (playedSongIDs.length) {
+                playlist = playlist.filter(p => !playedSongIDs.includes(p.id));
+            }
+
             if (playlist.length > 0) {
                 updateSongInfo();
+            } else {
+                localStorage.setItem('suno-played-song-ids', '[]');
+                location.reload();
             }
         });
     </script>
