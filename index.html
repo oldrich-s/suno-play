@@ -92,11 +92,11 @@
         }
 
         function nextSong() {
-            currentSongIndex = currentSongIndex + 1;
-            if (currentSongIndex >= playlist.length) return;
-
             const playedSongIDs = JSON.parse(localStorage.getItem('suno-played-song-ids') || '[]');
             localStorage.setItem('suno-played-song-ids', JSON.stringify([...playedSongIDs, playlist[currentSongIndex].id]));
+            
+            currentSongIndex = currentSongIndex + 1;
+            if (currentSongIndex >= playlist.length) return;
 
             audio.src = playlist[currentSongIndex].audio;
             audio.play();
