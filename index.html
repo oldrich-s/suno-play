@@ -15,9 +15,13 @@
         <h2 id="songTitle">Title: </h2>
         <h3 id="songTags"></h3>
         <img id="songImage" src="" alt="Song Image" style="width: 300px; height: auto;">
+        <br />
+        <div id="allSongTags"></div>
     </div>
 
     <script>
+        const allSongTags = new Set();
+
         // JavaScript logic
         const playlistApiUrl = "https://studio-api.prod.suno.com/api/playlist/9d83c77c-2d5e-4902-ae7a-ca5199359777/?page=";
         let playlist = [];
@@ -38,13 +42,16 @@
                 
                 const data = await response.json();
                 if (!data.playlist_clips || !data.playlist_clips.length) break;
+
+                const tags = clip.clip.metadata.tags?.split(',').map(v => v.trim()).filter(v => v) ?? [];
+                for (const tag of tags) allSongTags.add(tag)
                 
                 playlist = playlist.concat(data.playlist_clips.map(clip => ({
                     id: clip.clip.id,
                     title: clip.clip.title,
                     audio: clip.clip.audio_url,
                     image: clip.clip.image_url,
-                    tags: clip.clip.metadata.tags?.split(',').map(v => v.trim()).filter(v => v) ?? [],
+                    tags,
                 })));
                 
                 page++;
@@ -52,6 +59,8 @@
 
             // Shuffle the playlist
             playlist = playlist.map((v) => ({ v, id: Math.random() })).sort((a, b) => a.id - b.id).map(v => v.v)
+
+            document.getElementById("allSongTags").textContent = `Tags: ${[...allSongTags].join(', ')}`;
 
             console.log("Fetched and shuffled playlist:", playlist);
         }
