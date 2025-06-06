@@ -70,7 +70,7 @@
             playlist = playlist.map((v) => ({ v, id: Math.random() })).sort((a, b) => a.id - b.id).map(v => v.v)
 
             document.getElementById("allSongTags").innerHTML = `Tags:<br />${[...allSongTags].sort().map(tag => {
-                return `<button onclick="tagFn(this)>${tag}</button>`
+                return `<button onclick="tagFn(this)">${tag}</button>`
             }).join('<br />')}`;
 
             console.log("Fetched and shuffled playlist:", playlist);
