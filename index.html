@@ -46,7 +46,7 @@
                 if (!data.playlist_clips || !data.playlist_clips.length) break;
 
                 playlist = playlist.concat(data.playlist_clips.map(clip => {
-                    const tags = clip.clip.metadata.tags?.split(',').map(v => v.trim()).filter(v => v) ?? [];
+                    const tags = clip.clip.metadata.tags?.split(',').map(v => v.trim().toLowerCase()).filter(v => v) ?? [];
                     for (const tag of tags) allSongTags.add(tag)
 
                     return {
@@ -64,7 +64,7 @@
             // Shuffle the playlist
             playlist = playlist.map((v) => ({ v, id: Math.random() })).sort((a, b) => a.id - b.id).map(v => v.v)
 
-            document.getElementById("allSongTags").textContent = `Tags: ${[...allSongTags].join(', ')}`;
+            document.getElementById("allSongTags").textContent = `Tags: ${[...allSongTags].sort().join(', ')}`;
 
             console.log("Fetched and shuffled playlist:", playlist);
         }
