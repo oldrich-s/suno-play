@@ -51,8 +51,8 @@
                 if (!data.playlist_clips || !data.playlist_clips.length) break;
 
                 playlist = playlist.concat(data.playlist_clips.map(clip => {
-                    const tags = clip.clip.metadata.tags?.split(',').map(v => v.trim().toLowerCase()).filter(v => v) ?? [];
-                    for (const tag of tags) allSongTags.add(tag)
+                    const tags = clip.clip.metadata.tags?.toLowerCase().trim() ?? '';
+                    if (tags) allSongTags.add(tags)
 
                     return {
                         id: clip.clip.id,
@@ -79,7 +79,7 @@
         function updateSongInfo() {
             const currentSong = playlist[currentSongIndex];
             document.getElementById("songTitle").textContent = `Title: ${currentSong.title}`;
-            document.getElementById("songTags").textContent = `Tags: ${currentSong.tags.join(', ')}`;
+            document.getElementById("songTags").textContent = `Tags: ${currentSong.tags}`;
             document.getElementById("songImage").src = currentSong.image;
 
             // Update Media Session API for lock screen controls
