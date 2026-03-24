@@ -7,101 +7,267 @@
     <title>Suno Player</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        :root {
+            --accent: #6f42c1;
+            --accent-hover: #5a32a3;
+        }
+
         body {
-            padding-top: 1rem;
+            background: #f5f5f7;
+            min-height: 100vh;
             padding-bottom: 2rem;
         }
 
-        #songImage {
-            width: 300px;
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
+        .player-card {
+            background: #fff;
+            border-radius: 20px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            padding: 2rem 1.5rem;
+            text-align: center;
+        }
+
+        .album-art {
+            width: 260px;
+            height: 260px;
+            max-width: 80vw;
+            max-height: 80vw;
+            border-radius: 16px;
+            object-fit: cover;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+            margin: 0 auto;
+            display: block;
+            background: #e9ecef;
+        }
+
+        .song-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin: 1rem 0 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .song-tags {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* --- Custom seek bar --- */
+        .seek-container {
+            padding: 0 0.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .seek-bar-track {
+            position: relative;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            cursor: pointer;
+            touch-action: none;
+        }
+
+        .seek-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 3px;
+            width: 0%;
+            pointer-events: none;
+        }
+
+        .seek-bar-thumb {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 14px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 50%;
+            left: 0%;
+            pointer-events: none;
+            transition: transform 0.1s;
+        }
+
+        .seek-bar-track:active .seek-bar-thumb {
+            transform: translate(-50%, -50%) scale(1.3);
+        }
+
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #999;
+            margin-bottom: 0.75rem;
+        }
+
+        /* --- Transport controls --- */
+        .transport {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .btn-transport {
+            background: none;
+            border: none;
+            font-size: 1.6rem;
+            color: #333;
+            cursor: pointer;
+            padding: 0.3rem;
+            line-height: 1;
+            transition: color 0.15s, transform 0.1s;
+        }
+
+        .btn-transport:hover {
+            color: var(--accent);
+        }
+
+        .btn-transport:active {
+            transform: scale(0.9);
+        }
+
+        .btn-play {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(111, 66, 193, 0.35);
+            transition: background 0.15s, transform 0.1s;
+        }
+
+        .btn-play:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-play:active {
+            transform: scale(0.93);
+        }
+
+        /* --- Sections --- */
+        .section-card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+            padding: 1.25rem 1.25rem;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
         }
 
         .inspiration-item {
             cursor: pointer;
             transition: background-color 0.15s;
+            font-size: 0.9rem;
+            padding: 0.6rem 0.85rem;
         }
 
         .inspiration-item:hover {
-            background-color: #e9ecef !important;
+            background-color: #f0ebfa !important;
         }
 
         .inspiration-item:active {
-            background-color: #dee2e6 !important;
+            background-color: #e2d9f3 !important;
         }
 
         .tag-badge {
             cursor: pointer;
+            font-weight: 500;
+            font-size: 0.8rem;
+            transition: background-color 0.15s;
+        }
+
+        .tag-badge:hover {
+            background-color: #e2d9f3 !important;
+            color: var(--accent) !important;
+        }
+
+        .status-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            text-align: center;
         }
 
         .toast-container {
             z-index: 9999;
         }
-
-        audio {
-            width: 100%;
-        }
     </style>
 </head>
 
 <body>
-    <div class="container" style="max-width: 640px;">
-        <h1 class="mb-3">🎵 Suno Player</h1>
+    <div class="container py-3" style="max-width: 420px;">
 
-        <!-- Player controls -->
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <button id="prev" class="btn btn-outline-secondary">⏮ Prev</button>
-            <button id="playPause" class="btn btn-primary">▶ Play</button>
-            <button id="next" class="btn btn-outline-secondary">Next ⏭</button>
+        <!-- Player Card -->
+        <div class="player-card mb-3">
+            <img id="songImage" class="album-art mb-2" src="" alt="">
+            <div id="songTitle" class="song-title text-muted">Loading…</div>
+            <div id="songTags" class="song-tags"></div>
+
+            <!-- Seek bar -->
+            <div class="seek-container">
+                <div id="seekTrack" class="seek-bar-track">
+                    <div id="seekFill" class="seek-bar-fill"></div>
+                    <div id="seekThumb" class="seek-bar-thumb"></div>
+                </div>
+            </div>
+            <div class="time-display">
+                <span id="timeCurrent">0:00</span>
+                <span id="timeTotal">0:00</span>
+            </div>
+
+            <!-- Transport -->
+            <div class="transport">
+                <button id="prev" class="btn-transport" title="Previous">⏮</button>
+                <button id="playPause" class="btn-play" title="Play / Pause">▶</button>
+                <button id="next" class="btn-transport" title="Next">⏭</button>
+            </div>
         </div>
-        <div id="status" class="text-muted small mb-3"></div>
 
-        <!-- Audio element -->
-        <div id="audioContainer" class="mb-3"></div>
-
-        <!-- Current song info -->
-        <div id="currentSongInfo" class="mb-4">
-            <h4 id="songTitle" class="mb-1"></h4>
-            <p id="songTags" class="text-muted mb-2"></p>
-            <img id="songImage" src="" alt="Song Image" class="mb-3" style="display:none;">
-        </div>
-
-        <hr>
+        <div id="status" class="status-text mb-3"></div>
 
         <!-- Tag Inspiration -->
-        <div class="mb-4">
-            <h5>🎲 Tag Inspiration</h5>
-            <p class="text-muted small">Click a combination to copy it to clipboard.</p>
+        <div class="section-card mb-3">
+            <div class="section-title">🎲 Tag Inspiration</div>
+            <p class="text-muted small mb-2">Click a combination to copy.</p>
             <div class="d-flex gap-2 mb-3">
-                <button id="generateTags" class="btn btn-success">Generate Ideas</button>
-                <button id="refreshTags" class="btn btn-outline-success" style="display:none;">🔄 Refresh</button>
+                <button id="generateTags" class="btn btn-sm btn-outline-secondary">Generate</button>
+                <button id="refreshTags" class="btn btn-sm btn-outline-secondary" style="display:none;">🔄 Refresh</button>
             </div>
             <div id="inspirationList"></div>
         </div>
 
-        <hr>
-
-        <!-- All tags -->
-        <div class="mb-4">
-            <h5>
-                🏷️ All Tags
-                <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#allTagsCollapse">
-                    Show / Hide
-                </button>
-            </h5>
-            <div class="collapse" id="allTagsCollapse">
-                <div id="allSongTags" class="mt-2" style="line-height: 2;"></div>
+        <!-- All Tags -->
+        <div class="section-card mb-3">
+            <div class="d-flex align-items-center justify-content-between">
+                <span class="section-title mb-0">🏷️ All Tags</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#allTagsCollapse">Show / Hide</button>
+            </div>
+            <div class="collapse mt-2" id="allTagsCollapse">
+                <div id="allSongTags" style="line-height: 2.1;"></div>
             </div>
         </div>
     </div>
 
-    <!-- Toast for copy confirmation -->
+    <!-- Toast -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="copyToast" class="toast align-items-center text-bg-success border-0" role="alert">
             <div class="d-flex">
-                <div class="toast-body">✅ Copied to clipboard!</div>
+                <div class="toast-body">✅ Copied!</div>
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
         </div>
@@ -110,37 +276,238 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        // --- Configuration ---
+        // ==============================
+        // Configuration
+        // ==============================
         const PLAYLIST_IDS = [
-            "9d83c77c-2d5e-4902-ae7a-ca5199359777",
-            "dc7a675e-f64b-4e3b-9313-d8bceb5edb90"
+            '9d83c77c-2d5e-4902-ae7a-ca5199359777',
+            'dc7a675e-f64b-4e3b-9313-d8bceb5edb90'
         ];
         const CACHE_KEY = 'suno-cached-songs';
         const PLAYED_KEY = 'suno-played-song-ids';
-        const MAX_TAG_LENGTH = 30; // individual tag parts longer than this are descriptions, not tags
+        const MAX_TAG_LENGTH = 30;
 
-        // --- State ---
+        // ==============================
+        // State
+        // ==============================
         let playlist = [];
-        let allSongsGlobal = []; // all songs for tag extraction
+        let allSongsGlobal = [];
         let currentSongIndex = 0;
         let isPlaying = false;
+        let userInitiatedPause = false;
+        let isSeeking = false;
 
-        // --- Audio setup ---
+        // ==============================
+        // Audio (single element, NOT in DOM with native controls)
+        // ==============================
         const audio = new Audio();
-        audio.controls = true;
         audio.preload = 'auto';
         audio.volume = 1.0;
-        document.getElementById('audioContainer').appendChild(audio);
 
-        // --- iOS audio fixes ---
-        let userInitiatedPause = false;
+        // ==============================
+        // DOM refs
+        // ==============================
+        const $playPause = document.getElementById('playPause');
+        const $songTitle = document.getElementById('songTitle');
+        const $songTags = document.getElementById('songTags');
+        const $songImage = document.getElementById('songImage');
+        const $seekTrack = document.getElementById('seekTrack');
+        const $seekFill = document.getElementById('seekFill');
+        const $seekThumb = document.getElementById('seekThumb');
+        const $timeCurrent = document.getElementById('timeCurrent');
+        const $timeTotal = document.getElementById('timeTotal');
+        const $status = document.getElementById('status');
+
+        // ==============================
+        // Helpers
+        // ==============================
+        function setStatus(text) {
+            $status.textContent = text;
+        }
+
+        function formatTime(sec) {
+            if (!sec || !isFinite(sec)) return '0:00';
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return m + ':' + (s < 10 ? '0' : '') + s;
+        }
+
+        function shuffleArray(arr) {
+            const a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        function parseSongFromClip(clip) {
+            return {
+                id: clip.clip.id,
+                title: clip.clip.title,
+                audio: clip.clip.audio_url,
+                image: clip.clip.image_url,
+                tags: (clip.clip.metadata.tags || '').toLowerCase().trim(),
+            };
+        }
+
+        function showCopyToast() {
+            const toastEl = document.getElementById('copyToast');
+            bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 1500 }).show();
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(showCopyToast).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+                showCopyToast();
+            });
+        }
+
+        // ==============================
+        // localStorage
+        // ==============================
+        function loadCachedSongs() {
+            try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); }
+            catch { return []; }
+        }
+
+        function saveSongsToCache(songs) {
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(songs)); }
+            catch (e) { console.warn('Cache write error:', e); }
+        }
+
+        function getPlayedIds() {
+            try { return JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]'); }
+            catch { return []; }
+        }
+
+        function savePlayedIds(ids) {
+            try { localStorage.setItem(PLAYED_KEY, JSON.stringify(ids)); }
+            catch (e) { console.warn('Played IDs write error:', e); }
+        }
+
+        // ==============================
+        // Deduplication
+        // ==============================
+        function deduplicateSongs(songs) {
+            const seen = new Map();
+            for (const s of songs) seen.set(s.id, s);
+            return [...seen.values()];
+        }
+
+        // ==============================
+        // Playlist fetching
+        // ==============================
+        async function fetchPlaylistSongs(playlistId) {
+            const baseUrl = `https://studio-api.prod.suno.com/api/playlist/${playlistId}/?page=`;
+            const songs = [];
+            let page = 1;
+            while (true) {
+                const resp = await fetch(baseUrl + page);
+                if (resp.status !== 200) break;
+                const data = await resp.json();
+                if (!data.playlist_clips || !data.playlist_clips.length) break;
+                for (const clip of data.playlist_clips) songs.push(parseSongFromClip(clip));
+                page++;
+            }
+            return songs;
+        }
+
+        async function fetchAllPlaylists() {
+            const all = [];
+            for (const id of PLAYLIST_IDS) {
+                const songs = await fetchPlaylistSongs(id);
+                all.push(...songs);
+            }
+            return all;
+        }
+
+        // ==============================
+        // Seek bar
+        // ==============================
+        audio.addEventListener('timeupdate', () => {
+            if (isSeeking || !audio.duration) return;
+            const pct = (audio.currentTime / audio.duration) * 100;
+            $seekFill.style.width = pct + '%';
+            $seekThumb.style.left = pct + '%';
+            $timeCurrent.textContent = formatTime(audio.currentTime);
+        });
+
+        audio.addEventListener('loadedmetadata', () => {
+            $timeTotal.textContent = formatTime(audio.duration);
+        });
+
+        audio.addEventListener('durationchange', () => {
+            $timeTotal.textContent = formatTime(audio.duration);
+        });
+
+        function seekFromEvent(e) {
+            const rect = $seekTrack.getBoundingClientRect();
+            const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+            const pct = Math.max(0, Math.min(1, x / rect.width));
+            $seekFill.style.width = (pct * 100) + '%';
+            $seekThumb.style.left = (pct * 100) + '%';
+            return pct;
+        }
+
+        $seekTrack.addEventListener('mousedown', (e) => {
+            isSeeking = true;
+            const pct = seekFromEvent(e);
+
+            const onMove = (ev) => seekFromEvent(ev);
+            const onUp = (ev) => {
+                const p = seekFromEvent(ev);
+                if (audio.duration) audio.currentTime = p * audio.duration;
+                isSeeking = false;
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        });
+
+        $seekTrack.addEventListener('touchstart', (e) => {
+            isSeeking = true;
+            seekFromEvent(e);
+
+            const onMove = (ev) => { ev.preventDefault(); seekFromEvent(ev); };
+            const onEnd = (ev) => {
+                const touch = ev.changedTouches[0];
+                const rect = $seekTrack.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const pct = Math.max(0, Math.min(1, x / rect.width));
+                if (audio.duration) audio.currentTime = pct * audio.duration;
+                isSeeking = false;
+                window.removeEventListener('touchmove', onMove);
+                window.removeEventListener('touchend', onEnd);
+            };
+            window.addEventListener('touchmove', onMove, { passive: false });
+            window.addEventListener('touchend', onEnd);
+        }, { passive: true });
+
+        // ==============================
+        // iOS / playback reliability
+        // ==============================
+        function safePlay() {
+            const p = audio.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(err => {
+                    console.warn('play() rejected:', err.message);
+                    isPlaying = false;
+                    $playPause.textContent = '▶';
+                });
+            }
+        }
 
         audio.addEventListener('pause', () => {
             if (!userInitiatedPause && isPlaying && !audio.ended) {
                 setTimeout(() => {
-                    if (!audio.ended && audio.paused && isPlaying) {
-                        safePlay();
-                    }
+                    if (!audio.ended && audio.paused && isPlaying) safePlay();
                 }, 300);
             }
         });
@@ -166,251 +533,29 @@
 
         audio.addEventListener('ended', () => nextSong());
 
-        function safePlay() {
-            const p = audio.play();
-            if (p && typeof p.catch === 'function') {
-                p.catch(err => {
-                    console.warn('play() rejected:', err.message);
-                    isPlaying = false;
-                    document.getElementById('playPause').textContent = '▶ Play';
-                });
-            }
-        }
-
-        // --- Utility functions ---
-        function setStatus(text) {
-            document.getElementById('status').textContent = text;
-        }
-
-        function shuffleArray(arr) {
-            const a = [...arr];
-            for (let i = a.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [a[i], a[j]] = [a[j], a[i]];
-            }
-            return a;
-        }
-
-        function parseSongFromClip(clip) {
-            return {
-                id: clip.clip.id,
-                title: clip.clip.title,
-                audio: clip.clip.audio_url,
-                image: clip.clip.image_url,
-                tags: (clip.clip.metadata.tags || '').toLowerCase().trim(),
-            };
-        }
-
-        function showCopyToast() {
-            const toastEl = document.getElementById('copyToast');
-            const toast = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 1500 });
-            toast.show();
-        }
-
-        // --- localStorage helpers ---
-        function loadCachedSongs() {
-            try {
-                const cached = localStorage.getItem(CACHE_KEY);
-                return cached ? JSON.parse(cached) : [];
-            } catch (e) {
-                console.warn('Cache read error:', e);
-                return [];
-            }
-        }
-
-        function saveSongsToCache(songs) {
-            try {
-                localStorage.setItem(CACHE_KEY, JSON.stringify(songs));
-            } catch (e) {
-                console.warn('Cache write error:', e);
-            }
-        }
-
-        function getPlayedIds() {
-            try {
-                return JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
-            } catch (e) {
-                return [];
-            }
-        }
-
-        function savePlayedIds(ids) {
-            try {
-                localStorage.setItem(PLAYED_KEY, JSON.stringify(ids));
-            } catch (e) {
-                console.warn('Played IDs write error:', e);
-            }
-        }
-
-        // --- Deduplication ---
-        function deduplicateSongs(songs) {
-            const seen = new Map();
-            for (const song of songs) {
-                seen.set(song.id, song);
-            }
-            return [...seen.values()];
-        }
-
-        // --- Playlist fetching ---
-        async function fetchPlaylistSongs(playlistId) {
-            const baseUrl = `https://studio-api.prod.suno.com/api/playlist/${playlistId}/?page=`;
-            const songs = [];
-            let page = 1;
-            while (true) {
-                const response = await fetch(baseUrl + page);
-                if (response.status !== 200) break;
-                const data = await response.json();
-                if (!data.playlist_clips || !data.playlist_clips.length) break;
-                for (const clip of data.playlist_clips) {
-                    songs.push(parseSongFromClip(clip));
-                }
-                page++;
-            }
-            return songs;
-        }
-
-        async function fetchAllPlaylists() {
-            const allSongs = [];
-            for (const id of PLAYLIST_IDS) {
-                const songs = await fetchPlaylistSongs(id);
-                allSongs.push(...songs);
-            }
-            return allSongs;
-        }
-
-        // --- Tag extraction & filtering ---
-        function extractCleanTags(songs) {
-            const tagSet = new Set();
-            for (const song of songs) {
-                if (!song.tags) continue;
-                const parts = song.tags.split(',').map(t => t.trim()).filter(Boolean);
-                // If ANY part is too long, the whole tag string is likely a description — skip it
-                const allShort = parts.every(p => p.length <= MAX_TAG_LENGTH);
-                if (allShort) {
-                    for (const part of parts) {
-                        tagSet.add(part);
-                    }
-                }
-            }
-            return [...tagSet].sort();
-        }
-
-        function generateTagCombinations(cleanTags, count = 5) {
-            if (cleanTags.length < 3) return [];
-            const combos = [];
-            for (let i = 0; i < count; i++) {
-                const numTags = 3 + Math.floor(Math.random() * 3); // 3 to 5 tags
-                const shuffled = shuffleArray(cleanTags);
-                const combo = shuffled.slice(0, Math.min(numTags, shuffled.length));
-                combos.push(combo.join(', '));
-            }
-            return combos;
-        }
-
-        // --- Tag Inspiration UI ---
-        function renderInspirations(combos) {
-            const container = document.getElementById('inspirationList');
-            container.innerHTML = '';
-            const list = document.createElement('div');
-            list.className = 'list-group';
-
-            for (const combo of combos) {
-                const item = document.createElement('button');
-                item.type = 'button';
-                item.className = 'list-group-item list-group-item-action inspiration-item d-flex justify-content-between align-items-center';
-                
-                const text = document.createElement('span');
-                text.textContent = combo;
-                item.appendChild(text);
-
-                const badge = document.createElement('span');
-                badge.className = 'badge bg-secondary';
-                badge.textContent = '📋 Copy';
-                item.appendChild(badge);
-
-                item.addEventListener('click', () => {
-                    navigator.clipboard.writeText(combo).then(() => {
-                        showCopyToast();
-                    }).catch(() => {
-                        // Fallback: select text
-                        const ta = document.createElement('textarea');
-                        ta.value = combo;
-                        document.body.appendChild(ta);
-                        ta.select();
-                        document.execCommand('copy');
-                        ta.remove();
-                        showCopyToast();
-                    });
-                });
-
-                list.appendChild(item);
-            }
-            container.appendChild(list);
-        }
-
-        function doGenerateTags() {
-            const cleanTags = extractCleanTags(allSongsGlobal);
-            if (cleanTags.length < 3) {
-                document.getElementById('inspirationList').innerHTML =
-                    '<p class="text-muted">Not enough tags loaded yet. Wait for songs to load.</p>';
-                return;
-            }
-            const combos = generateTagCombinations(cleanTags, 5);
-            renderInspirations(combos);
-            document.getElementById('refreshTags').style.display = '';
-        }
-
-        document.getElementById('generateTags').addEventListener('click', doGenerateTags);
-        document.getElementById('refreshTags').addEventListener('click', doGenerateTags);
-
-        // --- All Tags UI ---
-        function buildTagsUI(songs) {
-            const cleanTags = extractCleanTags(songs);
-            const container = document.getElementById('allSongTags');
-            container.innerHTML = '';
-
-            for (const tag of cleanTags) {
-                const badge = document.createElement('span');
-                badge.className = 'badge bg-light text-dark border me-1 mb-1 tag-badge';
-                badge.textContent = tag;
-                badge.title = 'Click to copy';
-                badge.addEventListener('click', () => {
-                    navigator.clipboard.writeText(tag).then(() => {
-                        showCopyToast();
-                    }).catch(() => {});
-                });
-                container.appendChild(badge);
-            }
-        }
-
-        // --- Song info / playback UI ---
-        function filterPlayedSongs(songs) {
-            const playedIds = getPlayedIds();
-            if (playedIds.length === 0) return songs;
-            const filtered = songs.filter(s => !playedIds.includes(s.id));
-            if (filtered.length === 0) {
-                savePlayedIds([]);
-                return songs;
-            }
-            return filtered;
-        }
-
+        // ==============================
+        // Playback controls
+        // ==============================
         function updateSongInfo() {
             if (!playlist.length) return;
             const song = playlist[currentSongIndex];
             if (!song) return;
 
-            document.getElementById('songTitle').textContent = song.title;
-            document.getElementById('songTags').textContent = song.tags;
+            $songTitle.textContent = song.title;
+            $songTags.textContent = song.tags;
+            $songImage.src = song.image || '';
+            $songImage.style.visibility = song.image ? 'visible' : 'hidden';
 
-            const img = document.getElementById('songImage');
-            img.src = song.image;
-            img.style.display = song.image ? '' : 'none';
+            // Reset seek bar
+            $seekFill.style.width = '0%';
+            $seekThumb.style.left = '0%';
+            $timeCurrent.textContent = '0:00';
+            $timeTotal.textContent = '0:00';
 
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: song.title,
-                    artwork: [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }]
+                    artwork: song.image ? [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }] : []
                 });
                 navigator.mediaSession.setActionHandler('play', () => playPause());
                 navigator.mediaSession.setActionHandler('pause', () => playPause());
@@ -426,7 +571,7 @@
                 userInitiatedPause = true;
                 audio.pause();
                 isPlaying = false;
-                document.getElementById('playPause').textContent = '▶ Play';
+                $playPause.textContent = '▶';
                 setTimeout(() => { userInitiatedPause = false; }, 500);
             } else {
                 userInitiatedPause = false;
@@ -435,7 +580,7 @@
                     audio.load();
                 }
                 isPlaying = true;
-                document.getElementById('playPause').textContent = '⏸ Pause';
+                $playPause.textContent = '⏸';
                 safePlay();
                 updateSongInfo();
             }
@@ -443,29 +588,18 @@
 
         function nextSong() {
             if (!playlist.length) return;
-
-            const currentSong = playlist[currentSongIndex];
-            if (currentSong) {
-                const playedIds = getPlayedIds();
-                if (!playedIds.includes(currentSong.id)) {
-                    playedIds.push(currentSong.id);
-                    savePlayedIds(playedIds);
-                }
+            const cur = playlist[currentSongIndex];
+            if (cur) {
+                const ids = getPlayedIds();
+                if (!ids.includes(cur.id)) { ids.push(cur.id); savePlayedIds(ids); }
             }
-
-            currentSongIndex++;
-            if (currentSongIndex >= playlist.length) {
-                currentSongIndex = 0;
-            }
+            currentSongIndex = (currentSongIndex + 1) % playlist.length;
             loadAndPlay();
         }
 
         function prevSong() {
             if (!playlist.length) return;
-            currentSongIndex--;
-            if (currentSongIndex < 0) {
-                currentSongIndex = playlist.length - 1;
-            }
+            currentSongIndex = (currentSongIndex - 1 + playlist.length) % playlist.length;
             loadAndPlay();
         }
 
@@ -476,61 +610,141 @@
             audio.load();
             isPlaying = true;
             userInitiatedPause = false;
-            document.getElementById('playPause').textContent = '⏸ Pause';
+            $playPause.textContent = '⏸';
             safePlay();
             updateSongInfo();
         }
 
-        // --- Button event listeners ---
-        document.getElementById('playPause').addEventListener('click', playPause);
+        $playPause.addEventListener('click', playPause);
         document.getElementById('next').addEventListener('click', nextSong);
         document.getElementById('prev').addEventListener('click', prevSong);
 
-        // --- Main initialization ---
+        // ==============================
+        // Tags — extraction, inspiration, display
+        // ==============================
+        function extractCleanTags(songs) {
+            const tagSet = new Set();
+            for (const song of songs) {
+                if (!song.tags) continue;
+                const parts = song.tags.split(',').map(t => t.trim()).filter(Boolean);
+                if (parts.every(p => p.length <= MAX_TAG_LENGTH)) {
+                    for (const p of parts) tagSet.add(p);
+                }
+            }
+            return [...tagSet].sort();
+        }
+
+        function generateCombinations(cleanTags, count = 5) {
+            if (cleanTags.length < 3) return [];
+            const combos = [];
+            for (let i = 0; i < count; i++) {
+                const n = 3 + Math.floor(Math.random() * 3); // 3–5
+                combos.push(shuffleArray(cleanTags).slice(0, Math.min(n, cleanTags.length)).join(', '));
+            }
+            return combos;
+        }
+
+        function renderInspirations(combos) {
+            const container = document.getElementById('inspirationList');
+            container.innerHTML = '';
+            const list = document.createElement('div');
+            list.className = 'list-group';
+
+            for (const combo of combos) {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'list-group-item list-group-item-action inspiration-item';
+                item.textContent = combo;
+                item.addEventListener('click', () => copyText(combo));
+                list.appendChild(item);
+            }
+            container.appendChild(list);
+        }
+
+        function doGenerateTags() {
+            const tags = extractCleanTags(allSongsGlobal);
+            if (tags.length < 3) {
+                document.getElementById('inspirationList').innerHTML =
+                    '<p class="text-muted small">Not enough tags loaded yet.</p>';
+                return;
+            }
+            renderInspirations(generateCombinations(tags, 5));
+            document.getElementById('refreshTags').style.display = '';
+        }
+
+        document.getElementById('generateTags').addEventListener('click', doGenerateTags);
+        document.getElementById('refreshTags').addEventListener('click', doGenerateTags);
+
+        function buildTagsUI(songs) {
+            const tags = extractCleanTags(songs);
+            const container = document.getElementById('allSongTags');
+            container.innerHTML = '';
+            for (const tag of tags) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-light text-dark border me-1 mb-1 tag-badge';
+                badge.textContent = tag;
+                badge.title = 'Click to copy';
+                badge.addEventListener('click', () => copyText(tag));
+                container.appendChild(badge);
+            }
+        }
+
+        // ==============================
+        // Playlist filtering
+        // ==============================
+        function filterPlayedSongs(songs) {
+            const playedIds = getPlayedIds();
+            if (!playedIds.length) return songs;
+            const filtered = songs.filter(s => !playedIds.includes(s.id));
+            if (!filtered.length) { savePlayedIds([]); return songs; }
+            return filtered;
+        }
+
+        // ==============================
+        // Init
+        // ==============================
         (async () => {
             const cachedSongs = loadCachedSongs();
-            const cachedSongIds = new Set(cachedSongs.map(s => s.id));
+            const cachedIds = new Set(cachedSongs.map(s => s.id));
 
-            if (cachedSongs.length > 0) {
-                setStatus(`Loaded ${cachedSongs.length} cached songs. Checking for new…`);
+            if (cachedSongs.length) {
+                setStatus(`${cachedSongs.length} songs from cache. Checking for new…`);
                 allSongsGlobal = cachedSongs;
                 playlist = shuffleArray(filterPlayedSongs(cachedSongs));
                 buildTagsUI(cachedSongs);
-                if (playlist.length > 0) updateSongInfo();
+                if (playlist.length) updateSongInfo();
             } else {
-                setStatus('Loading songs for the first time…');
+                setStatus('Loading songs…');
             }
 
             try {
-                const freshSongs = await fetchAllPlaylists();
-                const allSongs = deduplicateSongs([...cachedSongs, ...freshSongs]);
-                const newSongs = allSongs.filter(s => !cachedSongIds.has(s.id));
+                const fresh = await fetchAllPlaylists();
+                const all = deduplicateSongs([...cachedSongs, ...fresh]);
+                const newSongs = all.filter(s => !cachedIds.has(s.id));
 
-                saveSongsToCache(allSongs);
-                allSongsGlobal = allSongs;
+                saveSongsToCache(all);
+                allSongsGlobal = all;
 
-                if (cachedSongs.length === 0) {
-                    playlist = shuffleArray(filterPlayedSongs(allSongs));
-                    buildTagsUI(allSongs);
-                    if (playlist.length > 0) updateSongInfo();
-                    setStatus(`Loaded ${allSongs.length} songs. Ready.`);
-                } else if (newSongs.length > 0) {
+                if (!cachedSongs.length) {
+                    playlist = shuffleArray(filterPlayedSongs(all));
+                    buildTagsUI(all);
+                    if (playlist.length) updateSongInfo();
+                    setStatus(`${all.length} songs loaded.`);
+                } else if (newSongs.length) {
                     const playedIds = getPlayedIds();
                     const unplayedNew = newSongs.filter(s => !playedIds.includes(s.id));
-                    if (unplayedNew.length > 0) {
-                        playlist.splice(currentSongIndex + 1, 0, ...shuffleArray(unplayedNew));
-                    }
-                    buildTagsUI(allSongs);
-                    setStatus(`${allSongs.length} songs (${newSongs.length} new). Ready.`);
+                    if (unplayedNew.length) playlist.splice(currentSongIndex + 1, 0, ...shuffleArray(unplayedNew));
+                    buildTagsUI(all);
+                    setStatus(`${all.length} songs (${newSongs.length} new).`);
                 } else {
-                    setStatus(`${allSongs.length} songs. Up to date.`);
+                    setStatus(`${all.length} songs. Up to date.`);
                 }
             } catch (e) {
-                console.error('Error fetching playlists:', e);
-                if (cachedSongs.length > 0) {
-                    setStatus(`Using ${cachedSongs.length} cached songs (offline).`);
+                console.error('Fetch error:', e);
+                if (cachedSongs.length) {
+                    setStatus(`${cachedSongs.length} cached songs (offline).`);
                 } else {
-                    setStatus('Error loading songs. Please refresh.');
+                    setStatus('Error loading songs. Refresh to try again.');
                 }
             }
         })();
