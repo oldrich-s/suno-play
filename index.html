@@ -5,80 +5,211 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suno Player</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .controls button {
+            padding: 10px 16px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #status {
+            color: #666;
+            font-size: 14px;
+        }
+        #audioContainer {
+            margin: 12px 0;
+        }
+        #audioContainer audio {
+            width: 100%;
+        }
+        #songImage {
+            width: 300px;
+            max-width: 100%;
+            height: auto;
+        }
+        #allSongTags {
+            margin-top: 16px;
+            line-height: 1.8;
+        }
+        #allSongTags a {
+            margin-right: 8px;
+        }
+    </style>
 </head>
 
 <body>
     <h1>Suno Player</h1>
-    <button id="playPause" style="padding: 10px;">Play</button>
-    <button id="next" style="padding: 10px;">Next</button>
-    <button id="prev" style="padding: 10px;">Previous</button>
-    <span id="status" style="margin-left: 10px; color: #666;"></span>
+
+    <div class="controls">
+        <button id="prev">⏮ Prev</button>
+        <button id="playPause">▶ Play</button>
+        <button id="next">Next ⏭</button>
+    </div>
+    <div id="status"></div>
+
+    <div id="audioContainer"></div>
 
     <div id="currentSongInfo">
-        <h2 id="songTitle">Title: </h2>
+        <h2 id="songTitle"></h2>
         <h3 id="songTags"></h3>
-        <img id="songImage" src="" alt="Song Image" style="width: 300px; height: auto;">
-        <br />
+        <img id="songImage" src="" alt="Song Image">
         <div id="allSongTags"></div>
     </div>
 
     <script>
-        const allSongTags = new Set();
-
-        // Multiple playlist IDs
-        const playlistIds = [
+        // --- Configuration ---
+        const PLAYLIST_IDS = [
             "9d83c77c-2d5e-4902-ae7a-ca5199359777",
             "dc7a675e-f64b-4e3b-9313-d8bceb5edb90"
         ];
-
         const CACHE_KEY = 'suno-cached-songs';
         const PLAYED_KEY = 'suno-played-song-ids';
 
+        // --- State ---
         let playlist = [];
         let currentSongIndex = 0;
-        let audio = new Audio();
         let isPlaying = false;
 
+        // --- Audio setup ---
+        // Single Audio element reused throughout (important for iOS)
+        const audio = new Audio();
         audio.controls = true;
-        audio.addEventListener('ended', nextSong);
+        audio.preload = 'auto';
+        audio.volume = 1.0;
+        document.getElementById('audioContainer').appendChild(audio);
 
-        function tagFn($el, evt) {
-            evt.preventDefault();
-            navigator.clipboard.writeText($el.textContent);
+        // --- iOS audio fixes ---
+        // iOS sometimes fires 'pause' unexpectedly (e.g. when switching tabs,
+        // locking the screen, or during audio interruptions). We detect these
+        // and attempt to resume playback automatically.
+        let userInitiatedPause = false;
+
+        audio.addEventListener('pause', () => {
+            if (!userInitiatedPause && isPlaying && !audio.ended) {
+                // Unexpected pause (likely iOS interruption) — try to resume
+                setTimeout(() => {
+                    if (!audio.ended && audio.paused && isPlaying) {
+                        safePlay();
+                    }
+                }, 300);
+            }
+        });
+
+        // Handle stalled / stuck states on iOS
+        audio.addEventListener('stalled', () => {
+            if (isPlaying) {
+                setTimeout(() => {
+                    if (audio.paused && isPlaying && !audio.ended) {
+                        audio.load();
+                        safePlay();
+                    }
+                }, 1000);
+            }
+        });
+
+        audio.addEventListener('error', () => {
+            console.error('Audio error:', audio.error);
+            if (isPlaying) {
+                // Try to skip to next song on error
+                setStatus('⚠ Playback error — skipping…');
+                setTimeout(() => nextSong(), 1000);
+            }
+        });
+
+        audio.addEventListener('ended', () => nextSong());
+
+        // Safe play that handles the promise rejection (required on iOS/modern browsers)
+        function safePlay() {
+            const p = audio.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(err => {
+                    console.warn('play() rejected:', err.message);
+                    // On iOS, this often means we need a user gesture.
+                    // Update UI so user can tap Play.
+                    isPlaying = false;
+                    document.getElementById('playPause').textContent = '▶ Play';
+                });
+            }
         }
 
+        // --- Utility functions ---
         function setStatus(text) {
-            document.getElementById("status").textContent = text;
+            document.getElementById('status').textContent = text;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function shuffleArray(arr) {
+            const a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
         }
 
         function parseSongFromClip(clip) {
-            const tags = clip.clip.metadata.tags?.toLowerCase().trim() ?? '';
             return {
                 id: clip.clip.id,
                 title: clip.clip.title,
                 audio: clip.clip.audio_url,
                 image: clip.clip.image_url,
-                tags,
+                tags: (clip.clip.metadata.tags || '').toLowerCase().trim(),
             };
         }
 
+        // --- localStorage helpers (wrapped in try/catch for quota safety) ---
         function loadCachedSongs() {
             try {
                 const cached = localStorage.getItem(CACHE_KEY);
-                if (cached) return JSON.parse(cached);
-            } catch (e) { }
-            return [];
+                return cached ? JSON.parse(cached) : [];
+            } catch (e) {
+                console.warn('Cache read error:', e);
+                return [];
+            }
         }
 
         function saveSongsToCache(songs) {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(songs));
+            try {
+                localStorage.setItem(CACHE_KEY, JSON.stringify(songs));
+            } catch (e) {
+                console.warn('Cache write error:', e);
+            }
         }
 
-        function shuffleArray(arr) {
-            return arr.map(v => ({ v, id: Math.random() })).sort((a, b) => a.id - b.id).map(v => v.v);
+        function getPlayedIds() {
+            try {
+                return JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
+            } catch (e) {
+                return [];
+            }
         }
 
-        // Deduplicate songs by ID. Later entries override earlier ones (fresh data preferred).
+        function savePlayedIds(ids) {
+            try {
+                localStorage.setItem(PLAYED_KEY, JSON.stringify(ids));
+            } catch (e) {
+                console.warn('Played IDs write error:', e);
+            }
+        }
+
+        // --- Deduplication ---
         function deduplicateSongs(songs) {
             const seen = new Map();
             for (const song of songs) {
@@ -87,6 +218,7 @@
             return [...seen.values()];
         }
 
+        // --- Playlist fetching ---
         async function fetchPlaylistSongs(playlistId) {
             const baseUrl = `https://studio-api.prod.suno.com/api/playlist/${playlistId}/?page=`;
             const songs = [];
@@ -109,109 +241,155 @@
 
         async function fetchAllPlaylists() {
             const allSongs = [];
-            for (const id of playlistIds) {
+            for (const id of PLAYLIST_IDS) {
                 const songs = await fetchPlaylistSongs(id);
                 allSongs.push(...songs);
             }
             return allSongs;
         }
 
+        // --- UI ---
         function buildTagsUI(songs) {
-            allSongTags.clear();
+            const tagSet = new Set();
             for (const song of songs) {
-                if (song.tags) allSongTags.add(song.tags);
+                if (song.tags) tagSet.add(song.tags);
             }
-            document.getElementById("allSongTags").innerHTML = `Tags:<br />${[...allSongTags].map(tag => {
-                return `<a href="#" onclick="tagFn(this, event)">${tag}</a>`;
-            }).join('<br />')}`;
+            const container = document.getElementById('allSongTags');
+            container.innerHTML = '';
+
+            const label = document.createElement('strong');
+            label.textContent = 'Tags:';
+            container.appendChild(label);
+            container.appendChild(document.createElement('br'));
+
+            for (const tag of tagSet) {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.textContent = tag;
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigator.clipboard.writeText(tag).catch(() => {});
+                });
+                container.appendChild(a);
+                container.appendChild(document.createElement('br'));
+            }
         }
 
         function filterPlayedSongs(songs) {
-            const playedSongIDs = JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
-            if (playedSongIDs.length) {
-                const filtered = songs.filter(p => !playedSongIDs.includes(p.id));
-                if (filtered.length === 0) {
-                    // All songs played — reset
-                    localStorage.setItem(PLAYED_KEY, '[]');
-                    return songs;
-                }
-                return filtered;
+            const playedIds = getPlayedIds();
+            if (playedIds.length === 0) return songs;
+
+            const filtered = songs.filter(s => !playedIds.includes(s.id));
+            if (filtered.length === 0) {
+                // All songs played — reset
+                savePlayedIds([]);
+                return songs;
             }
-            return songs;
+            return filtered;
         }
 
         function updateSongInfo() {
-            const currentSong = playlist[currentSongIndex];
-            document.getElementById("songTitle").textContent = `Title: ${currentSong.title}`;
-            document.getElementById("songTags").textContent = `Tags: ${currentSong.tags}`;
-            document.getElementById("songImage").src = currentSong.image;
+            if (!playlist.length) return;
+            const song = playlist[currentSongIndex];
+            if (!song) return;
 
-            // Update Media Session API for lock screen controls
+            document.getElementById('songTitle').textContent = song.title;
+            document.getElementById('songTags').textContent = song.tags;
+            document.getElementById('songImage').src = song.image;
+
+            // Media Session API for lock screen / notification controls
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
-                    title: currentSong.title,
+                    title: song.title,
                     artwork: [
-                        { src: currentSong.image, sizes: '512x512', type: 'image/jpeg' }
+                        { src: song.image, sizes: '512x512', type: 'image/jpeg' }
                     ]
                 });
-
-                navigator.mediaSession.setActionHandler('play', playPause);
-                navigator.mediaSession.setActionHandler('pause', playPause);
-                navigator.mediaSession.setActionHandler('nexttrack', nextSong);
-                navigator.mediaSession.setActionHandler('previoustrack', prevSong);
+                navigator.mediaSession.setActionHandler('play', () => playPause());
+                navigator.mediaSession.setActionHandler('pause', () => playPause());
+                navigator.mediaSession.setActionHandler('nexttrack', () => nextSong());
+                navigator.mediaSession.setActionHandler('previoustrack', () => prevSong());
             }
         }
 
+        // --- Playback controls ---
         function playPause() {
+            if (!playlist.length) return;
+
             if (isPlaying) {
+                userInitiatedPause = true;
                 audio.pause();
                 isPlaying = false;
-                document.getElementById("playPause").textContent = "Play";
+                document.getElementById('playPause').textContent = '▶ Play';
+                setTimeout(() => { userInitiatedPause = false; }, 500);
             } else {
-                if (!audio.src) {
+                userInitiatedPause = false;
+                if (!audio.src || audio.src === location.href) {
+                    // No source set yet — load current song
                     audio.src = playlist[currentSongIndex].audio;
                 }
-                audio.play();
                 isPlaying = true;
-                document.getElementById("playPause").textContent = "Pause";
+                document.getElementById('playPause').textContent = '⏸ Pause';
+                safePlay();
                 updateSongInfo();
             }
         }
 
         function nextSong() {
-            const playedSongIDs = JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
-            localStorage.setItem(PLAYED_KEY, JSON.stringify([...playedSongIDs, playlist[currentSongIndex].id]));
+            if (!playlist.length) return;
 
-            currentSongIndex = currentSongIndex + 1;
-            if (currentSongIndex >= playlist.length) return;
+            // Mark current song as played
+            const currentSong = playlist[currentSongIndex];
+            if (currentSong) {
+                const playedIds = getPlayedIds();
+                if (!playedIds.includes(currentSong.id)) {
+                    playedIds.push(currentSong.id);
+                    savePlayedIds(playedIds);
+                }
+            }
 
-            audio.src = playlist[currentSongIndex].audio;
-            audio.play();
-            isPlaying = true;
-            document.getElementById("playPause").textContent = "Pause";
-            updateSongInfo();
+            currentSongIndex++;
+            if (currentSongIndex >= playlist.length) {
+                // Wrap around to beginning
+                currentSongIndex = 0;
+            }
+
+            loadAndPlay();
         }
 
         function prevSong() {
-            currentSongIndex = currentSongIndex - 1;
-            if (currentSongIndex < 0) return;
+            if (!playlist.length) return;
 
-            audio.src = playlist[currentSongIndex].audio;
-            audio.play();
+            currentSongIndex--;
+            if (currentSongIndex < 0) {
+                currentSongIndex = playlist.length - 1;
+            }
+
+            loadAndPlay();
+        }
+
+        function loadAndPlay() {
+            const song = playlist[currentSongIndex];
+            if (!song) return;
+
+            audio.src = song.audio;
+            audio.load(); // Explicitly load — helps iOS
             isPlaying = true;
-            document.getElementById("playPause").textContent = "Pause";
+            userInitiatedPause = false;
+            document.getElementById('playPause').textContent = '⏸ Pause';
+            safePlay();
             updateSongInfo();
         }
 
-        // Add button event listeners
-        document.getElementById("playPause").addEventListener("click", playPause);
-        document.getElementById("next").addEventListener("click", nextSong);
-        document.getElementById("prev").addEventListener("click", prevSong);
+        // --- Button event listeners ---
+        document.getElementById('playPause').addEventListener('click', playPause);
+        document.getElementById('next').addEventListener('click', nextSong);
+        document.getElementById('prev').addEventListener('click', prevSong);
 
-        // Main initialization
+        // --- Main initialization ---
         (async () => {
-            // 1. Load from cache immediately for instant startup
-            let cachedSongs = loadCachedSongs();
+            // 1. Load from cache for instant startup
+            const cachedSongs = loadCachedSongs();
             const cachedSongIds = new Set(cachedSongs.map(s => s.id));
 
             if (cachedSongs.length > 0) {
@@ -220,44 +398,41 @@
                 buildTagsUI(cachedSongs);
                 if (playlist.length > 0) updateSongInfo();
             } else {
-                setStatus("Loading songs for the first time…");
+                setStatus('Loading songs for the first time…');
             }
 
             // 2. Fetch fresh data from API in background
             try {
                 const freshSongs = await fetchAllPlaylists();
-                // Merge: fresh data overrides cached (updates audio/image URLs)
                 const allSongs = deduplicateSongs([...cachedSongs, ...freshSongs]);
                 const newSongs = allSongs.filter(s => !cachedSongIds.has(s.id));
 
-                // Always update cache with latest data
                 saveSongsToCache(allSongs);
 
                 if (cachedSongs.length === 0) {
-                    // First load — no cache existed, build playlist from scratch
+                    // First load
                     playlist = shuffleArray(filterPlayedSongs(allSongs));
                     buildTagsUI(allSongs);
                     if (playlist.length > 0) updateSongInfo();
                     setStatus(`Loaded ${allSongs.length} songs. Ready.`);
                 } else if (newSongs.length > 0) {
-                    // New songs found — insert them into current playlist after current position
-                    const playedSongIDs = JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
-                    const unplayedNew = newSongs.filter(s => !playedSongIDs.includes(s.id));
+                    // Insert new songs after current position
+                    const playedIds = getPlayedIds();
+                    const unplayedNew = newSongs.filter(s => !playedIds.includes(s.id));
                     if (unplayedNew.length > 0) {
-                        const insertPos = currentSongIndex + 1;
-                        playlist.splice(insertPos, 0, ...shuffleArray(unplayedNew));
+                        playlist.splice(currentSongIndex + 1, 0, ...shuffleArray(unplayedNew));
                     }
                     buildTagsUI(allSongs);
-                    setStatus(`${allSongs.length} songs (${newSongs.length} new added). Ready.`);
+                    setStatus(`${allSongs.length} songs (${newSongs.length} new). Ready.`);
                 } else {
                     setStatus(`${allSongs.length} songs. Up to date.`);
                 }
             } catch (e) {
-                console.error("Error fetching playlists:", e);
+                console.error('Error fetching playlists:', e);
                 if (cachedSongs.length > 0) {
-                    setStatus(`Using ${cachedSongs.length} cached songs (API unavailable).`);
+                    setStatus(`Using ${cachedSongs.length} cached songs (offline).`);
                 } else {
-                    setStatus("Error loading songs. Please refresh to try again.");
+                    setStatus('Error loading songs. Please refresh.');
                 }
             }
         })();
