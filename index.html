@@ -288,6 +288,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js"></script>
 
     <script>
         // ==============================
@@ -308,15 +309,9 @@
         let allSongsGlobal = [];
         let currentSongIndex = 0;
         let isPlaying = false;
-        let userInitiatedPause = false;
         let isSeeking = false;
-
-        // ==============================
-        // Audio — single element, reused for all songs
-        // ==============================
-        const audio = new Audio();
-        audio.preload = 'auto';
-        audio.volume = 1.0;
+        let currentHowl = null;   // The active Howl instance
+        let seekRafId = null;     // requestAnimationFrame ID for seek bar updates
 
         // ==============================
         // DOM refs
@@ -442,24 +437,35 @@
         }
 
         // ==============================
-        // Seek bar
+        // Seek bar — animation loop (Howler has no timeupdate)
         // ==============================
-        audio.addEventListener('timeupdate', () => {
-            if (isSeeking || !audio.duration) return;
-            const pct = (audio.currentTime / audio.duration) * 100;
-            $seekFill.style.width = pct + '%';
-            $seekThumb.style.left = pct + '%';
-            $timeCurrent.textContent = formatTime(audio.currentTime);
-        });
+        function startSeekLoop() {
+            cancelAnimationFrame(seekRafId);
+            function tick() {
+                if (currentHowl && currentHowl.playing() && !isSeeking) {
+                    const seek = currentHowl.seek() || 0;
+                    const dur = currentHowl.duration() || 0;
+                    if (dur > 0) {
+                        const pct = (seek / dur) * 100;
+                        $seekFill.style.width = pct + '%';
+                        $seekThumb.style.left = pct + '%';
+                        $timeCurrent.textContent = formatTime(seek);
+                        $timeTotal.textContent = formatTime(dur);
+                    }
+                }
+                seekRafId = requestAnimationFrame(tick);
+            }
+            seekRafId = requestAnimationFrame(tick);
+        }
 
-        audio.addEventListener('loadedmetadata', () => {
-            $timeTotal.textContent = formatTime(audio.duration);
-        });
+        function stopSeekLoop() {
+            cancelAnimationFrame(seekRafId);
+            seekRafId = null;
+        }
 
-        audio.addEventListener('durationchange', () => {
-            $timeTotal.textContent = formatTime(audio.duration);
-        });
-
+        // ==============================
+        // Seek bar — user interaction
+        // ==============================
         function seekFromEvent(e) {
             const rect = $seekTrack.getBoundingClientRect();
             const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
@@ -475,7 +481,10 @@
             const onMove = (ev) => seekFromEvent(ev);
             const onUp = (ev) => {
                 const p = seekFromEvent(ev);
-                if (audio.duration) audio.currentTime = p * audio.duration;
+                if (currentHowl) {
+                    const dur = currentHowl.duration() || 0;
+                    if (dur > 0) currentHowl.seek(p * dur);
+                }
                 isSeeking = false;
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
@@ -493,7 +502,10 @@
                 const rect = $seekTrack.getBoundingClientRect();
                 const x = touch.clientX - rect.left;
                 const pct = Math.max(0, Math.min(1, x / rect.width));
-                if (audio.duration) audio.currentTime = pct * audio.duration;
+                if (currentHowl) {
+                    const dur = currentHowl.duration() || 0;
+                    if (dur > 0) currentHowl.seek(pct * dur);
+                }
                 isSeeking = false;
                 window.removeEventListener('touchmove', onMove);
                 window.removeEventListener('touchend', onEnd);
@@ -503,55 +515,84 @@
         }, { passive: true });
 
         // ==============================
-        // iOS / playback reliability
+        // Howler — create / destroy
         // ==============================
-        function safePlay() {
-            const p = audio.play();
-            if (p && typeof p.catch === 'function') {
-                p.catch(err => {
-                    console.warn('play() rejected:', err.message);
-                    isPlaying = false;
-                    $playPause.textContent = '▶';
-                });
+        function destroyCurrentHowl() {
+            if (currentHowl) {
+                currentHowl.unload();
+                currentHowl = null;
             }
+            stopSeekLoop();
         }
 
-        // iOS fires spurious pause events (lock screen, interruption, tab switch).
-        // Auto-resume unless the user deliberately paused.
-        audio.addEventListener('pause', () => {
-            if (!userInitiatedPause && isPlaying && !audio.ended) {
-                setTimeout(() => {
-                    if (!audio.ended && audio.paused && isPlaying && !userInitiatedPause) {
-                        console.log('Auto-resuming after unexpected pause');
-                        safePlay();
-                    }
-                }, 300);
-            }
-        });
+        function createHowl(url) {
+            destroyCurrentHowl();
 
-        // If audio stalls (iOS network hiccup), reload and retry.
-        audio.addEventListener('stalled', () => {
-            if (isPlaying) {
-                setTimeout(() => {
-                    if (audio.paused && isPlaying && !audio.ended) {
-                        console.log('Stall recovery — reloading');
-                        audio.load();
-                        safePlay();
-                    }
-                }, 1000);
-            }
-        });
+            currentHowl = new Howl({
+                src: [url],
+                html5: true,          // Required for streaming & iOS
+                preload: true,
+                volume: 1.0,
+                onplay: () => {
+                    isPlaying = true;
+                    $playPause.textContent = '⏸';
+                    startSeekLoop();
+                    // Update duration once available
+                    const dur = currentHowl.duration();
+                    if (dur) $timeTotal.textContent = formatTime(dur);
+                },
+                onpause: () => {
+                    $playPause.textContent = '▶';
+                    stopSeekLoop();
+                },
+                onstop: () => {
+                    $playPause.textContent = '▶';
+                    stopSeekLoop();
+                },
+                onend: () => {
+                    stopSeekLoop();
+                    nextSong();
+                },
+                onloaderror: (_id, err) => {
+                    console.error('Howler load error:', err);
+                    setStatus('⚠ Load error — skipping…');
+                    setTimeout(() => nextSong(), 1000);
+                },
+                onplayerror: (_id, err) => {
+                    console.error('Howler play error:', err);
+                    // Howler automatically tries to unlock audio on user gesture.
+                    // If it still fails, skip after a delay.
+                    setStatus('⚠ Playback error — retrying…');
+                    currentHowl.once('unlock', () => {
+                        currentHowl.play();
+                    });
+                    setTimeout(() => {
+                        if (currentHowl && !currentHowl.playing()) {
+                            setStatus('⚠ Playback error — skipping…');
+                            nextSong();
+                        }
+                    }, 3000);
+                },
+            });
 
-        // On error, skip to next song after a short delay.
-        audio.addEventListener('error', () => {
-            console.error('Audio error:', audio.error);
-            if (isPlaying) {
-                setStatus('⚠ Playback error — skipping…');
-                setTimeout(() => nextSong(), 1000);
-            }
-        });
+            return currentHowl;
+        }
 
-        audio.addEventListener('ended', () => nextSong());
+        // ==============================
+        // Media Session (lock screen controls)
+        // ==============================
+        function updateMediaSession(song) {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: song.title,
+                    artwork: song.image ? [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }] : []
+                });
+                navigator.mediaSession.setActionHandler('play', () => playPause());
+                navigator.mediaSession.setActionHandler('pause', () => playPause());
+                navigator.mediaSession.setActionHandler('nexttrack', () => nextSong());
+                navigator.mediaSession.setActionHandler('previoustrack', () => prevSong());
+            }
+        }
 
         // ==============================
         // Playback controls
@@ -572,36 +613,28 @@
             $timeCurrent.textContent = '0:00';
             $timeTotal.textContent = '0:00';
 
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: song.title,
-                    artwork: song.image ? [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }] : []
-                });
-                navigator.mediaSession.setActionHandler('play', () => playPause());
-                navigator.mediaSession.setActionHandler('pause', () => playPause());
-                navigator.mediaSession.setActionHandler('nexttrack', () => nextSong());
-                navigator.mediaSession.setActionHandler('previoustrack', () => prevSong());
-            }
+            updateMediaSession(song);
         }
 
         function playPause() {
             if (!playlist.length) return;
 
-            if (isPlaying) {
-                userInitiatedPause = true;
-                audio.pause();
+            if (currentHowl && currentHowl.playing()) {
+                // Pause
+                currentHowl.pause();
                 isPlaying = false;
                 $playPause.textContent = '▶';
-                setTimeout(() => { userInitiatedPause = false; }, 500);
+            } else if (currentHowl && isPlaying) {
+                // Was paused, resume
+                currentHowl.play();
             } else {
-                userInitiatedPause = false;
-                if (!audio.src || audio.src === location.href) {
-                    audio.src = playlist[currentSongIndex].audio;
-                    audio.load();
-                }
+                // First play or no howl yet
+                const song = playlist[currentSongIndex];
+                if (!song) return;
+                createHowl(song.audio);
+                currentHowl.play();
                 isPlaying = true;
                 $playPause.textContent = '⏸';
-                safePlay();
                 updateSongInfo();
             }
         }
@@ -626,12 +659,10 @@
         function loadAndPlay() {
             const song = playlist[currentSongIndex];
             if (!song) return;
-            audio.src = song.audio;
-            audio.load();
+            createHowl(song.audio);
+            currentHowl.play();
             isPlaying = true;
-            userInitiatedPause = false;
             $playPause.textContent = '⏸';
-            safePlay();
             updateSongInfo();
         }
 
@@ -647,7 +678,6 @@
             for (const song of songs) {
                 if (!song.tags) continue;
                 const parts = song.tags.split(',').map(t => t.trim()).filter(Boolean);
-                // Only keep tags where every part is short (real style tags, not descriptions)
                 if (parts.every(p => p.length <= MAX_TAG_LENGTH)) {
                     for (const p of parts) tagSet.add(p);
                 }
@@ -659,7 +689,7 @@
             if (cleanTags.length < 3) return [];
             const combos = [];
             for (let i = 0; i < count; i++) {
-                const n = 3 + Math.floor(Math.random() * 3); // 3–5 tags
+                const n = 3 + Math.floor(Math.random() * 3);
                 combos.push(shuffleArray(cleanTags).slice(0, Math.min(n, cleanTags.length)).join(', '));
             }
             return combos;
