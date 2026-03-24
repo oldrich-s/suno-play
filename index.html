@@ -12,6 +12,7 @@
     <button id="playPause" style="padding: 10px;">Play</button>
     <button id="next" style="padding: 10px;">Next</button>
     <button id="prev" style="padding: 10px;">Previous</button>
+    <span id="status" style="margin-left: 10px; color: #666;"></span>
 
     <div id="currentSongInfo">
         <h2 id="songTitle">Title: </h2>
@@ -24,56 +25,119 @@
     <script>
         const allSongTags = new Set();
 
-        // JavaScript logic
-        const playlistApiUrl = "https://studio-api.prod.suno.com/api/playlist/9d83c77c-2d5e-4902-ae7a-ca5199359777/?page=";
+        // Multiple playlist IDs
+        const playlistIds = [
+            "9d83c77c-2d5e-4902-ae7a-ca5199359777",
+            "dc7a675e-f64b-4e3b-9313-d8bceb5edb90"
+        ];
+
+        const CACHE_KEY = 'suno-cached-songs';
+        const PLAYED_KEY = 'suno-played-song-ids';
+
         let playlist = [];
         let currentSongIndex = 0;
         let audio = new Audio();
         let isPlaying = false;
 
         audio.controls = true;
-
         audio.addEventListener('ended', nextSong);
 
         function tagFn($el, evt) {
             evt.preventDefault();
-           navigator.clipboard.writeText($el.textContent);
+            navigator.clipboard.writeText($el.textContent);
         }
 
-        async function fetchPlaylist() {
+        function setStatus(text) {
+            document.getElementById("status").textContent = text;
+        }
+
+        function parseSongFromClip(clip) {
+            const tags = clip.clip.metadata.tags?.toLowerCase().trim() ?? '';
+            return {
+                id: clip.clip.id,
+                title: clip.clip.title,
+                audio: clip.clip.audio_url,
+                image: clip.clip.image_url,
+                tags,
+            };
+        }
+
+        function loadCachedSongs() {
+            try {
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) return JSON.parse(cached);
+            } catch (e) { }
+            return [];
+        }
+
+        function saveSongsToCache(songs) {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(songs));
+        }
+
+        function shuffleArray(arr) {
+            return arr.map(v => ({ v, id: Math.random() })).sort((a, b) => a.id - b.id).map(v => v.v);
+        }
+
+        // Deduplicate songs by ID. Later entries override earlier ones (fresh data preferred).
+        function deduplicateSongs(songs) {
+            const seen = new Map();
+            for (const song of songs) {
+                seen.set(song.id, song);
+            }
+            return [...seen.values()];
+        }
+
+        async function fetchPlaylistSongs(playlistId) {
+            const baseUrl = `https://studio-api.prod.suno.com/api/playlist/${playlistId}/?page=`;
+            const songs = [];
             let page = 1;
 
             while (true) {
-                const response = await fetch(playlistApiUrl + page);
+                const response = await fetch(baseUrl + page);
                 if (response.status !== 200) break;
 
                 const data = await response.json();
                 if (!data.playlist_clips || !data.playlist_clips.length) break;
 
-                playlist = playlist.concat(data.playlist_clips.map(clip => {
-                    const tags = clip.clip.metadata.tags?.toLowerCase().trim() ?? '';
-                    if (tags) allSongTags.add(tags)
-
-                    return {
-                        id: clip.clip.id,
-                        title: clip.clip.title,
-                        audio: clip.clip.audio_url,
-                        image: clip.clip.image_url,
-                        tags,
-                    }
-                }));
-
+                for (const clip of data.playlist_clips) {
+                    songs.push(parseSongFromClip(clip));
+                }
                 page++;
             }
+            return songs;
+        }
 
-            // Shuffle the playlist
-            playlist = playlist.map((v) => ({ v, id: Math.random() })).sort((a, b) => a.id - b.id).map(v => v.v)
+        async function fetchAllPlaylists() {
+            const allSongs = [];
+            for (const id of playlistIds) {
+                const songs = await fetchPlaylistSongs(id);
+                allSongs.push(...songs);
+            }
+            return allSongs;
+        }
 
+        function buildTagsUI(songs) {
+            allSongTags.clear();
+            for (const song of songs) {
+                if (song.tags) allSongTags.add(song.tags);
+            }
             document.getElementById("allSongTags").innerHTML = `Tags:<br />${[...allSongTags].map(tag => {
-                return `<a href="#" onclick="tagFn(this, event)">${tag}</a>`
+                return `<a href="#" onclick="tagFn(this, event)">${tag}</a>`;
             }).join('<br />')}`;
+        }
 
-            console.log("Fetched and shuffled playlist:", playlist);
+        function filterPlayedSongs(songs) {
+            const playedSongIDs = JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
+            if (playedSongIDs.length) {
+                const filtered = songs.filter(p => !playedSongIDs.includes(p.id));
+                if (filtered.length === 0) {
+                    // All songs played — reset
+                    localStorage.setItem(PLAYED_KEY, '[]');
+                    return songs;
+                }
+                return filtered;
+            }
+            return songs;
         }
 
         function updateSongInfo() {
@@ -115,8 +179,8 @@
         }
 
         function nextSong() {
-            const playedSongIDs = JSON.parse(localStorage.getItem('suno-played-song-ids') || '[]');
-            localStorage.setItem('suno-played-song-ids', JSON.stringify([...playedSongIDs, playlist[currentSongIndex].id]));
+            const playedSongIDs = JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
+            localStorage.setItem(PLAYED_KEY, JSON.stringify([...playedSongIDs, playlist[currentSongIndex].id]));
 
             currentSongIndex = currentSongIndex + 1;
             if (currentSongIndex >= playlist.length) return;
@@ -144,21 +208,59 @@
         document.getElementById("next").addEventListener("click", nextSong);
         document.getElementById("prev").addEventListener("click", prevSong);
 
-        // Fetch the playlist on page load
-        fetchPlaylist().then(() => {
-            const playedSongIDs = JSON.parse(localStorage.getItem('suno-played-song-ids') || '[]');
+        // Main initialization
+        (async () => {
+            // 1. Load from cache immediately for instant startup
+            let cachedSongs = loadCachedSongs();
+            const cachedSongIds = new Set(cachedSongs.map(s => s.id));
 
-            if (playedSongIDs.length) {
-                playlist = playlist.filter(p => !playedSongIDs.includes(p.id));
-            }
-
-            if (playlist.length > 0) {
-                updateSongInfo();
+            if (cachedSongs.length > 0) {
+                setStatus(`Loaded ${cachedSongs.length} cached songs. Checking for new…`);
+                playlist = shuffleArray(filterPlayedSongs(cachedSongs));
+                buildTagsUI(cachedSongs);
+                if (playlist.length > 0) updateSongInfo();
             } else {
-                localStorage.setItem('suno-played-song-ids', '[]');
-                location.reload();
+                setStatus("Loading songs for the first time…");
             }
-        });
+
+            // 2. Fetch fresh data from API in background
+            try {
+                const freshSongs = await fetchAllPlaylists();
+                // Merge: fresh data overrides cached (updates audio/image URLs)
+                const allSongs = deduplicateSongs([...cachedSongs, ...freshSongs]);
+                const newSongs = allSongs.filter(s => !cachedSongIds.has(s.id));
+
+                // Always update cache with latest data
+                saveSongsToCache(allSongs);
+
+                if (cachedSongs.length === 0) {
+                    // First load — no cache existed, build playlist from scratch
+                    playlist = shuffleArray(filterPlayedSongs(allSongs));
+                    buildTagsUI(allSongs);
+                    if (playlist.length > 0) updateSongInfo();
+                    setStatus(`Loaded ${allSongs.length} songs. Ready.`);
+                } else if (newSongs.length > 0) {
+                    // New songs found — insert them into current playlist after current position
+                    const playedSongIDs = JSON.parse(localStorage.getItem(PLAYED_KEY) || '[]');
+                    const unplayedNew = newSongs.filter(s => !playedSongIDs.includes(s.id));
+                    if (unplayedNew.length > 0) {
+                        const insertPos = currentSongIndex + 1;
+                        playlist.splice(insertPos, 0, ...shuffleArray(unplayedNew));
+                    }
+                    buildTagsUI(allSongs);
+                    setStatus(`${allSongs.length} songs (${newSongs.length} new added). Ready.`);
+                } else {
+                    setStatus(`${allSongs.length} songs. Up to date.`);
+                }
+            } catch (e) {
+                console.error("Error fetching playlists:", e);
+                if (cachedSongs.length > 0) {
+                    setStatus(`Using ${cachedSongs.length} cached songs (API unavailable).`);
+                } else {
+                    setStatus("Error loading songs. Please refresh to try again.");
+                }
+            }
+        })();
     </script>
 </body>
 
