@@ -624,9 +624,10 @@
                 currentHowl.pause();
                 isPlaying = false;
                 $playPause.textContent = '▶';
-            } else if (currentHowl && isPlaying) {
-                // Was paused, resume
+            } else if (currentHowl) {
+                // Resume existing paused Howl (works from iOS lock screen)
                 currentHowl.play();
+                isPlaying = true;
             } else {
                 // First play or no howl yet
                 const song = playlist[currentSongIndex];
