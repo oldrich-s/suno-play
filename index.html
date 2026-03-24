@@ -288,7 +288,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js"></script>
 
     <script>
         // ==============================
@@ -308,10 +307,14 @@
         let playlist = [];
         let allSongsGlobal = [];
         let currentSongIndex = 0;
-        let isPlaying = false;
         let isSeeking = false;
-        let currentHowl = null;   // The active Howl instance
-        let seekRafId = null;     // requestAnimationFrame ID for seek bar updates
+
+        // ==============================
+        // Native HTML5 Audio element — single persistent instance
+        // iOS integrates this directly with lock screen controls.
+        // ==============================
+        const audio = new Audio();
+        audio.preload = 'auto';
 
         // ==============================
         // DOM refs
@@ -437,31 +440,52 @@
         }
 
         // ==============================
-        // Seek bar — animation loop (Howler has no timeupdate)
+        // Audio event listeners — native timeupdate, no RAF needed
         // ==============================
-        function startSeekLoop() {
-            cancelAnimationFrame(seekRafId);
-            function tick() {
-                if (currentHowl && currentHowl.playing() && !isSeeking) {
-                    const seek = currentHowl.seek() || 0;
-                    const dur = currentHowl.duration() || 0;
-                    if (dur > 0) {
-                        const pct = (seek / dur) * 100;
-                        $seekFill.style.width = pct + '%';
-                        $seekThumb.style.left = pct + '%';
-                        $timeCurrent.textContent = formatTime(seek);
-                        $timeTotal.textContent = formatTime(dur);
-                    }
-                }
-                seekRafId = requestAnimationFrame(tick);
+        audio.addEventListener('timeupdate', () => {
+            if (isSeeking) return;
+            const cur = audio.currentTime || 0;
+            const dur = audio.duration || 0;
+            if (dur > 0) {
+                const pct = (cur / dur) * 100;
+                $seekFill.style.width = pct + '%';
+                $seekThumb.style.left = pct + '%';
+                $timeCurrent.textContent = formatTime(cur);
             }
-            seekRafId = requestAnimationFrame(tick);
-        }
+        });
 
-        function stopSeekLoop() {
-            cancelAnimationFrame(seekRafId);
-            seekRafId = null;
-        }
+        audio.addEventListener('loadedmetadata', () => {
+            $timeTotal.textContent = formatTime(audio.duration);
+        });
+
+        audio.addEventListener('durationchange', () => {
+            $timeTotal.textContent = formatTime(audio.duration);
+        });
+
+        audio.addEventListener('play', () => {
+            $playPause.textContent = '⏸';
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing';
+            }
+        });
+
+        audio.addEventListener('pause', () => {
+            $playPause.textContent = '▶';
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'paused';
+            }
+        });
+
+        audio.addEventListener('ended', () => {
+            $playPause.textContent = '▶';
+            nextSong();
+        });
+
+        audio.addEventListener('error', (e) => {
+            console.error('Audio error:', e);
+            setStatus('⚠ Playback error — skipping…');
+            setTimeout(() => nextSong(), 1500);
+        });
 
         // ==============================
         // Seek bar — user interaction
@@ -481,10 +505,8 @@
             const onMove = (ev) => seekFromEvent(ev);
             const onUp = (ev) => {
                 const p = seekFromEvent(ev);
-                if (currentHowl) {
-                    const dur = currentHowl.duration() || 0;
-                    if (dur > 0) currentHowl.seek(p * dur);
-                }
+                const dur = audio.duration || 0;
+                if (dur > 0) audio.currentTime = p * dur;
                 isSeeking = false;
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
@@ -502,10 +524,8 @@
                 const rect = $seekTrack.getBoundingClientRect();
                 const x = touch.clientX - rect.left;
                 const pct = Math.max(0, Math.min(1, x / rect.width));
-                if (currentHowl) {
-                    const dur = currentHowl.duration() || 0;
-                    if (dur > 0) currentHowl.seek(pct * dur);
-                }
+                const dur = audio.duration || 0;
+                if (dur > 0) audio.currentTime = pct * dur;
                 isSeeking = false;
                 window.removeEventListener('touchmove', onMove);
                 window.removeEventListener('touchend', onEnd);
@@ -515,83 +535,36 @@
         }, { passive: true });
 
         // ==============================
-        // Howler — create / destroy
-        // ==============================
-        function destroyCurrentHowl() {
-            if (currentHowl) {
-                currentHowl.unload();
-                currentHowl = null;
-            }
-            stopSeekLoop();
-        }
-
-        function createHowl(url) {
-            destroyCurrentHowl();
-
-            currentHowl = new Howl({
-                src: [url],
-                html5: true,          // Required for streaming & iOS
-                preload: true,
-                volume: 1.0,
-                onplay: () => {
-                    isPlaying = true;
-                    $playPause.textContent = '⏸';
-                    startSeekLoop();
-                    // Update duration once available
-                    const dur = currentHowl.duration();
-                    if (dur) $timeTotal.textContent = formatTime(dur);
-                },
-                onpause: () => {
-                    $playPause.textContent = '▶';
-                    stopSeekLoop();
-                },
-                onstop: () => {
-                    $playPause.textContent = '▶';
-                    stopSeekLoop();
-                },
-                onend: () => {
-                    stopSeekLoop();
-                    nextSong();
-                },
-                onloaderror: (_id, err) => {
-                    console.error('Howler load error:', err);
-                    setStatus('⚠ Load error — skipping…');
-                    setTimeout(() => nextSong(), 1000);
-                },
-                onplayerror: (_id, err) => {
-                    console.error('Howler play error:', err);
-                    // Howler automatically tries to unlock audio on user gesture.
-                    // If it still fails, skip after a delay.
-                    setStatus('⚠ Playback error — retrying…');
-                    currentHowl.once('unlock', () => {
-                        currentHowl.play();
-                    });
-                    setTimeout(() => {
-                        if (currentHowl && !currentHowl.playing()) {
-                            setStatus('⚠ Playback error — skipping…');
-                            nextSong();
-                        }
-                    }, 3000);
-                },
-            });
-
-            return currentHowl;
-        }
-
-        // ==============================
         // Media Session (lock screen controls)
+        // Direct audio.play() / audio.pause() — no abstraction layer.
+        // This is what iOS needs for reliable lock screen controls.
         // ==============================
         function updateMediaSession(song) {
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: song.title,
-                    artwork: song.image ? [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }] : []
-                });
-                navigator.mediaSession.setActionHandler('play', () => playPause());
-                navigator.mediaSession.setActionHandler('pause', () => playPause());
-                navigator.mediaSession.setActionHandler('nexttrack', () => nextSong());
-                navigator.mediaSession.setActionHandler('previoustrack', () => prevSong());
-            }
+            if (!('mediaSession' in navigator)) return;
+
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: song.title,
+                artwork: song.image ? [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }] : []
+            });
+
+            // Direct handlers — iOS fires these from lock screen.
+            // Calling audio.play()/pause() directly on the native element
+            // is the most reliable approach for iOS.
+            navigator.mediaSession.setActionHandler('play', () => {
+                audio.play();
+            });
+            navigator.mediaSession.setActionHandler('pause', () => {
+                audio.pause();
+            });
+            navigator.mediaSession.setActionHandler('nexttrack', () => nextSong());
+            navigator.mediaSession.setActionHandler('previoustrack', () => prevSong());
+            navigator.mediaSession.setActionHandler('seekto', (details) => {
+                if (details.fastSeek && 'fastSeek' in audio) {
+                    audio.fastSeek(details.seekTime);
+                } else {
+                    audio.currentTime = details.seekTime;
+                }
+            });
         }
 
         // ==============================
@@ -619,24 +592,16 @@
         function playPause() {
             if (!playlist.length) return;
 
-            if (currentHowl && currentHowl.playing()) {
-                // Pause
-                currentHowl.pause();
-                isPlaying = false;
-                $playPause.textContent = '▶';
-            } else if (currentHowl) {
-                // Resume existing paused Howl (works from iOS lock screen)
-                currentHowl.play();
-                isPlaying = true;
+            if (!audio.src || audio.src === '') {
+                // First play — load the song
+                loadAndPlay();
+                return;
+            }
+
+            if (audio.paused) {
+                audio.play();
             } else {
-                // First play or no howl yet
-                const song = playlist[currentSongIndex];
-                if (!song) return;
-                createHowl(song.audio);
-                currentHowl.play();
-                isPlaying = true;
-                $playPause.textContent = '⏸';
-                updateSongInfo();
+                audio.pause();
             }
         }
 
@@ -660,10 +625,15 @@
         function loadAndPlay() {
             const song = playlist[currentSongIndex];
             if (!song) return;
-            createHowl(song.audio);
-            currentHowl.play();
-            isPlaying = true;
-            $playPause.textContent = '⏸';
+
+            // Set the source on the persistent audio element — don't create a new one
+            audio.src = song.audio;
+            audio.load();
+            audio.play().catch(err => {
+                console.warn('Auto-play blocked:', err);
+                setStatus('Tap play to start.');
+            });
+
             updateSongInfo();
         }
 
