@@ -5,68 +5,109 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suno Player</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 16px;
+            padding-top: 1rem;
+            padding-bottom: 2rem;
         }
-        .controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-        }
-        .controls button {
-            padding: 10px 16px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-        #status {
-            color: #666;
-            font-size: 14px;
-        }
-        #audioContainer {
-            margin: 12px 0;
-        }
-        #audioContainer audio {
-            width: 100%;
-        }
+
         #songImage {
             width: 300px;
             max-width: 100%;
             height: auto;
+            border-radius: 8px;
         }
-        #allSongTags {
-            margin-top: 16px;
-            line-height: 1.8;
+
+        .inspiration-item {
+            cursor: pointer;
+            transition: background-color 0.15s;
         }
-        #allSongTags a {
-            margin-right: 8px;
+
+        .inspiration-item:hover {
+            background-color: #e9ecef !important;
+        }
+
+        .inspiration-item:active {
+            background-color: #dee2e6 !important;
+        }
+
+        .tag-badge {
+            cursor: pointer;
+        }
+
+        .toast-container {
+            z-index: 9999;
+        }
+
+        audio {
+            width: 100%;
         }
     </style>
 </head>
 
 <body>
-    <h1>Suno Player</h1>
+    <div class="container" style="max-width: 640px;">
+        <h1 class="mb-3">🎵 Suno Player</h1>
 
-    <div class="controls">
-        <button id="prev">⏮ Prev</button>
-        <button id="playPause">▶ Play</button>
-        <button id="next">Next ⏭</button>
+        <!-- Player controls -->
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <button id="prev" class="btn btn-outline-secondary">⏮ Prev</button>
+            <button id="playPause" class="btn btn-primary">▶ Play</button>
+            <button id="next" class="btn btn-outline-secondary">Next ⏭</button>
+        </div>
+        <div id="status" class="text-muted small mb-3"></div>
+
+        <!-- Audio element -->
+        <div id="audioContainer" class="mb-3"></div>
+
+        <!-- Current song info -->
+        <div id="currentSongInfo" class="mb-4">
+            <h4 id="songTitle" class="mb-1"></h4>
+            <p id="songTags" class="text-muted mb-2"></p>
+            <img id="songImage" src="" alt="Song Image" class="mb-3" style="display:none;">
+        </div>
+
+        <hr>
+
+        <!-- Tag Inspiration -->
+        <div class="mb-4">
+            <h5>🎲 Tag Inspiration</h5>
+            <p class="text-muted small">Click a combination to copy it to clipboard.</p>
+            <div class="d-flex gap-2 mb-3">
+                <button id="generateTags" class="btn btn-success">Generate Ideas</button>
+                <button id="refreshTags" class="btn btn-outline-success" style="display:none;">🔄 Refresh</button>
+            </div>
+            <div id="inspirationList"></div>
+        </div>
+
+        <hr>
+
+        <!-- All tags -->
+        <div class="mb-4">
+            <h5>
+                🏷️ All Tags
+                <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#allTagsCollapse">
+                    Show / Hide
+                </button>
+            </h5>
+            <div class="collapse" id="allTagsCollapse">
+                <div id="allSongTags" class="mt-2" style="line-height: 2;"></div>
+            </div>
+        </div>
     </div>
-    <div id="status"></div>
 
-    <div id="audioContainer"></div>
-
-    <div id="currentSongInfo">
-        <h2 id="songTitle"></h2>
-        <h3 id="songTags"></h3>
-        <img id="songImage" src="" alt="Song Image">
-        <div id="allSongTags"></div>
+    <!-- Toast for copy confirmation -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="copyToast" class="toast align-items-center text-bg-success border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">✅ Copied to clipboard!</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         // --- Configuration ---
@@ -76,14 +117,15 @@
         ];
         const CACHE_KEY = 'suno-cached-songs';
         const PLAYED_KEY = 'suno-played-song-ids';
+        const MAX_TAG_LENGTH = 30; // individual tag parts longer than this are descriptions, not tags
 
         // --- State ---
         let playlist = [];
+        let allSongsGlobal = []; // all songs for tag extraction
         let currentSongIndex = 0;
         let isPlaying = false;
 
         // --- Audio setup ---
-        // Single Audio element reused throughout (important for iOS)
         const audio = new Audio();
         audio.controls = true;
         audio.preload = 'auto';
@@ -91,14 +133,10 @@
         document.getElementById('audioContainer').appendChild(audio);
 
         // --- iOS audio fixes ---
-        // iOS sometimes fires 'pause' unexpectedly (e.g. when switching tabs,
-        // locking the screen, or during audio interruptions). We detect these
-        // and attempt to resume playback automatically.
         let userInitiatedPause = false;
 
         audio.addEventListener('pause', () => {
             if (!userInitiatedPause && isPlaying && !audio.ended) {
-                // Unexpected pause (likely iOS interruption) — try to resume
                 setTimeout(() => {
                     if (!audio.ended && audio.paused && isPlaying) {
                         safePlay();
@@ -107,7 +145,6 @@
             }
         });
 
-        // Handle stalled / stuck states on iOS
         audio.addEventListener('stalled', () => {
             if (isPlaying) {
                 setTimeout(() => {
@@ -122,7 +159,6 @@
         audio.addEventListener('error', () => {
             console.error('Audio error:', audio.error);
             if (isPlaying) {
-                // Try to skip to next song on error
                 setStatus('⚠ Playback error — skipping…');
                 setTimeout(() => nextSong(), 1000);
             }
@@ -130,14 +166,11 @@
 
         audio.addEventListener('ended', () => nextSong());
 
-        // Safe play that handles the promise rejection (required on iOS/modern browsers)
         function safePlay() {
             const p = audio.play();
             if (p && typeof p.catch === 'function') {
                 p.catch(err => {
                     console.warn('play() rejected:', err.message);
-                    // On iOS, this often means we need a user gesture.
-                    // Update UI so user can tap Play.
                     isPlaying = false;
                     document.getElementById('playPause').textContent = '▶ Play';
                 });
@@ -147,12 +180,6 @@
         // --- Utility functions ---
         function setStatus(text) {
             document.getElementById('status').textContent = text;
-        }
-
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
         }
 
         function shuffleArray(arr) {
@@ -174,7 +201,13 @@
             };
         }
 
-        // --- localStorage helpers (wrapped in try/catch for quota safety) ---
+        function showCopyToast() {
+            const toastEl = document.getElementById('copyToast');
+            const toast = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 1500 });
+            toast.show();
+        }
+
+        // --- localStorage helpers ---
         function loadCachedSongs() {
             try {
                 const cached = localStorage.getItem(CACHE_KEY);
@@ -223,14 +256,11 @@
             const baseUrl = `https://studio-api.prod.suno.com/api/playlist/${playlistId}/?page=`;
             const songs = [];
             let page = 1;
-
             while (true) {
                 const response = await fetch(baseUrl + page);
                 if (response.status !== 200) break;
-
                 const data = await response.json();
                 if (!data.playlist_clips || !data.playlist_clips.length) break;
-
                 for (const clip of data.playlist_clips) {
                     songs.push(parseSongFromClip(clip));
                 }
@@ -248,40 +278,117 @@
             return allSongs;
         }
 
-        // --- UI ---
-        function buildTagsUI(songs) {
+        // --- Tag extraction & filtering ---
+        function extractCleanTags(songs) {
             const tagSet = new Set();
             for (const song of songs) {
-                if (song.tags) tagSet.add(song.tags);
+                if (!song.tags) continue;
+                const parts = song.tags.split(',').map(t => t.trim()).filter(Boolean);
+                // If ANY part is too long, the whole tag string is likely a description — skip it
+                const allShort = parts.every(p => p.length <= MAX_TAG_LENGTH);
+                if (allShort) {
+                    for (const part of parts) {
+                        tagSet.add(part);
+                    }
+                }
             }
+            return [...tagSet].sort();
+        }
+
+        function generateTagCombinations(cleanTags, count = 5) {
+            if (cleanTags.length < 3) return [];
+            const combos = [];
+            for (let i = 0; i < count; i++) {
+                const numTags = 3 + Math.floor(Math.random() * 3); // 3 to 5 tags
+                const shuffled = shuffleArray(cleanTags);
+                const combo = shuffled.slice(0, Math.min(numTags, shuffled.length));
+                combos.push(combo.join(', '));
+            }
+            return combos;
+        }
+
+        // --- Tag Inspiration UI ---
+        function renderInspirations(combos) {
+            const container = document.getElementById('inspirationList');
+            container.innerHTML = '';
+            const list = document.createElement('div');
+            list.className = 'list-group';
+
+            for (const combo of combos) {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'list-group-item list-group-item-action inspiration-item d-flex justify-content-between align-items-center';
+                
+                const text = document.createElement('span');
+                text.textContent = combo;
+                item.appendChild(text);
+
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-secondary';
+                badge.textContent = '📋 Copy';
+                item.appendChild(badge);
+
+                item.addEventListener('click', () => {
+                    navigator.clipboard.writeText(combo).then(() => {
+                        showCopyToast();
+                    }).catch(() => {
+                        // Fallback: select text
+                        const ta = document.createElement('textarea');
+                        ta.value = combo;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        ta.remove();
+                        showCopyToast();
+                    });
+                });
+
+                list.appendChild(item);
+            }
+            container.appendChild(list);
+        }
+
+        function doGenerateTags() {
+            const cleanTags = extractCleanTags(allSongsGlobal);
+            if (cleanTags.length < 3) {
+                document.getElementById('inspirationList').innerHTML =
+                    '<p class="text-muted">Not enough tags loaded yet. Wait for songs to load.</p>';
+                return;
+            }
+            const combos = generateTagCombinations(cleanTags, 5);
+            renderInspirations(combos);
+            document.getElementById('refreshTags').style.display = '';
+        }
+
+        document.getElementById('generateTags').addEventListener('click', doGenerateTags);
+        document.getElementById('refreshTags').addEventListener('click', doGenerateTags);
+
+        // --- All Tags UI ---
+        function buildTagsUI(songs) {
+            const cleanTags = extractCleanTags(songs);
             const container = document.getElementById('allSongTags');
             container.innerHTML = '';
 
-            const label = document.createElement('strong');
-            label.textContent = 'Tags:';
-            container.appendChild(label);
-            container.appendChild(document.createElement('br'));
-
-            for (const tag of tagSet) {
-                const a = document.createElement('a');
-                a.href = '#';
-                a.textContent = tag;
-                a.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    navigator.clipboard.writeText(tag).catch(() => {});
+            for (const tag of cleanTags) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-light text-dark border me-1 mb-1 tag-badge';
+                badge.textContent = tag;
+                badge.title = 'Click to copy';
+                badge.addEventListener('click', () => {
+                    navigator.clipboard.writeText(tag).then(() => {
+                        showCopyToast();
+                    }).catch(() => {});
                 });
-                container.appendChild(a);
-                container.appendChild(document.createElement('br'));
+                container.appendChild(badge);
             }
         }
 
+        // --- Song info / playback UI ---
         function filterPlayedSongs(songs) {
             const playedIds = getPlayedIds();
             if (playedIds.length === 0) return songs;
-
             const filtered = songs.filter(s => !playedIds.includes(s.id));
             if (filtered.length === 0) {
-                // All songs played — reset
                 savePlayedIds([]);
                 return songs;
             }
@@ -295,15 +402,15 @@
 
             document.getElementById('songTitle').textContent = song.title;
             document.getElementById('songTags').textContent = song.tags;
-            document.getElementById('songImage').src = song.image;
 
-            // Media Session API for lock screen / notification controls
+            const img = document.getElementById('songImage');
+            img.src = song.image;
+            img.style.display = song.image ? '' : 'none';
+
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: song.title,
-                    artwork: [
-                        { src: song.image, sizes: '512x512', type: 'image/jpeg' }
-                    ]
+                    artwork: [{ src: song.image, sizes: '512x512', type: 'image/jpeg' }]
                 });
                 navigator.mediaSession.setActionHandler('play', () => playPause());
                 navigator.mediaSession.setActionHandler('pause', () => playPause());
@@ -312,7 +419,6 @@
             }
         }
 
-        // --- Playback controls ---
         function playPause() {
             if (!playlist.length) return;
 
@@ -325,8 +431,8 @@
             } else {
                 userInitiatedPause = false;
                 if (!audio.src || audio.src === location.href) {
-                    // No source set yet — load current song
                     audio.src = playlist[currentSongIndex].audio;
+                    audio.load();
                 }
                 isPlaying = true;
                 document.getElementById('playPause').textContent = '⏸ Pause';
@@ -338,7 +444,6 @@
         function nextSong() {
             if (!playlist.length) return;
 
-            // Mark current song as played
             const currentSong = playlist[currentSongIndex];
             if (currentSong) {
                 const playedIds = getPlayedIds();
@@ -350,30 +455,25 @@
 
             currentSongIndex++;
             if (currentSongIndex >= playlist.length) {
-                // Wrap around to beginning
                 currentSongIndex = 0;
             }
-
             loadAndPlay();
         }
 
         function prevSong() {
             if (!playlist.length) return;
-
             currentSongIndex--;
             if (currentSongIndex < 0) {
                 currentSongIndex = playlist.length - 1;
             }
-
             loadAndPlay();
         }
 
         function loadAndPlay() {
             const song = playlist[currentSongIndex];
             if (!song) return;
-
             audio.src = song.audio;
-            audio.load(); // Explicitly load — helps iOS
+            audio.load();
             isPlaying = true;
             userInitiatedPause = false;
             document.getElementById('playPause').textContent = '⏸ Pause';
@@ -388,12 +488,12 @@
 
         // --- Main initialization ---
         (async () => {
-            // 1. Load from cache for instant startup
             const cachedSongs = loadCachedSongs();
             const cachedSongIds = new Set(cachedSongs.map(s => s.id));
 
             if (cachedSongs.length > 0) {
                 setStatus(`Loaded ${cachedSongs.length} cached songs. Checking for new…`);
+                allSongsGlobal = cachedSongs;
                 playlist = shuffleArray(filterPlayedSongs(cachedSongs));
                 buildTagsUI(cachedSongs);
                 if (playlist.length > 0) updateSongInfo();
@@ -401,22 +501,20 @@
                 setStatus('Loading songs for the first time…');
             }
 
-            // 2. Fetch fresh data from API in background
             try {
                 const freshSongs = await fetchAllPlaylists();
                 const allSongs = deduplicateSongs([...cachedSongs, ...freshSongs]);
                 const newSongs = allSongs.filter(s => !cachedSongIds.has(s.id));
 
                 saveSongsToCache(allSongs);
+                allSongsGlobal = allSongs;
 
                 if (cachedSongs.length === 0) {
-                    // First load
                     playlist = shuffleArray(filterPlayedSongs(allSongs));
                     buildTagsUI(allSongs);
                     if (playlist.length > 0) updateSongInfo();
                     setStatus(`Loaded ${allSongs.length} songs. Ready.`);
                 } else if (newSongs.length > 0) {
-                    // Insert new songs after current position
                     const playedIds = getPlayedIds();
                     const unplayedNew = newSongs.filter(s => !playedIds.includes(s.id));
                     if (unplayedNew.length > 0) {
