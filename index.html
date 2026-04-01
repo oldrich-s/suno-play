@@ -69,6 +69,16 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            cursor: pointer;
+            transition: color 0.15s;
+        }
+
+        .song-tags:hover {
+            color: var(--accent);
+        }
+
+        .song-tags:active {
+            color: var(--accent-hover);
         }
 
         /* --- Custom seek bar --- */
@@ -640,6 +650,12 @@
         $playPause.addEventListener('click', playPause);
         document.getElementById('next').addEventListener('click', nextSong);
         document.getElementById('prev').addEventListener('click', prevSong);
+
+        // Click on playing song tags to copy to clipboard
+        $songTags.addEventListener('click', () => {
+            const text = $songTags.textContent.trim();
+            if (text) copyText(text);
+        });
 
         // ==============================
         // Tags — extraction, inspiration, display
